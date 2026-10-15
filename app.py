@@ -6,9 +6,16 @@ import zipfile
 import io
 from datetime import datetime
 
+# Importaciones para Google Drive API
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+
 # ==========================================
-# CONFIGURACIÓN DE RUTAS Y SISTEMA
+# CONFIGURACIÓN DE RUTAS Y GOOGLE DRIVE
 # ==========================================
+DRIVE_FOLDER_ID = "1mWmUetoNl4wBaE6b1ZFDPh9v9ovJGFvk"
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
 BASE_DATOS_DIR = os.path.join(ROOT_DIR, "2_BASE_DATOS")
@@ -25,6 +32,40 @@ st.set_page_config(
     page_icon="📷",
     layout="wide"
 )
+
+# ==========================================
+# FUNCIONES DE GOOGLE DRIVE
+# ==========================================
+def get_drive_service():
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    if "private_key" in creds_dict:
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+    
+    scopes = ['https://www.googleapis.com/auth/drive']
+    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    return build('drive', 'v3', credentials=creds)
+
+def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
+    file_metadata = {
+        'name': nombre_carpeta,
+        'mimeType': 'application/vnd.google-apps.folder',
+        'parents': [parent_id]
+    }
+    folder = service.files().create(body=file_metadata, fields='id').execute()
+    return folder.get('id')
+
+def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
+    file_metadata = {
+        'name': nombre_foto,
+        'parents': [folder_id]
+    }
+    media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type, resumable=True)
+    file = service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields='id, webViewLink'
+    ).execute()
+    return file.get('webViewLink')
 
 # ==========================================
 # ESTILOS CSS PROFESIONALES (AZUL MARINO INSTITUCIONAL)
@@ -431,11 +472,29 @@ if opcion_menu == "📝 Cargar Secuencia":
             os.makedirs(ruta_carpeta, exist_ok=True)
 
             cant_fotos_subidas = len(archivos_fotos)
-            for idx, foto in enumerate(archivos_fotos, start=1):
-                ext = os.path.splitext(foto.name)[1]
-                nombre_foto = f"FOTO_{idx:03d}_{letra_actual}{ext}"
-                with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
-                    f.write(foto.getbuffer())
+
+            # --- SUBIDA A GOOGLE DRIVE ---
+            drive_exito = False
+            try:
+                service = get_drive_service()
+                subcarpeta_id = crear_subcarpeta_drive(service, nombre_carpeta, DRIVE_FOLDER_ID)
+                
+                for idx, foto in enumerate(archivos_fotos, start=1):
+                    ext = os.path.splitext(foto.name)[1]
+                    nombre_foto = f"FOTO_{idx:03d}_{letra_actual}{ext}"
+                    
+                    # 1. Guardar localmente
+                    foto_bytes = foto.getbuffer()
+                    with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
+                        f.write(foto_bytes)
+                    
+                    # 2. Subir a Google Drive
+                    mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
+                    subir_foto_drive(service, foto_bytes, nombre_foto, mime, subcarpeta_id)
+                
+                drive_exito = True
+            except Exception as e:
+                st.warning(f"⚠️ Las fotos se guardaron localmente pero hubo un detalle al subir a Google Drive: {e}")
 
             registro = {
                 "Fecha_Carga": fecha_str,
@@ -461,6 +520,8 @@ if opcion_menu == "📝 Cargar Secuencia":
             guardar_configuracion(num_itf_actual)
 
             st.success(f"✅ ¡Secuencia **{letra_actual}** registrada con éxito!")
+            if drive_exito:
+                st.info("☁️ **Resguardo permanente habilitado:** Las fotos se subieron correctamente a Google Drive.")
             st.write(f"📄 **Informe Fotográfico Asignado:** `{itf_formateado}`")
             st.write(f"📁 **Carpeta:** `{nombre_carpeta}`")
             st.write(f"📷 **Fotos indicadas:** {cant_fotos_manual} | **Fotos subidas:** {cant_fotos_subidas} unidades.")
