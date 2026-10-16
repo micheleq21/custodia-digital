@@ -35,7 +35,7 @@ st.set_page_config(
 )
 
 # ==========================================
-# FUNCIONES DE GOOGLE DRIVE
+# FUNCIONES DE GOOGLE DRIVE (AJUSTADAS CON PERMISOS)
 # ==========================================
 def get_drive_service():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -52,7 +52,11 @@ def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
         'mimeType': 'application/vnd.google-apps.folder',
         'parents': [parent_id]
     }
-    folder = service.files().create(body=file_metadata, fields='id').execute()
+    folder = service.files().create(
+        body=file_metadata, 
+        fields='id',
+        supportsAllDrives=True
+    ).execute()
     return folder.get('id')
 
 def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
@@ -64,7 +68,8 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     file = service.files().create(
         body=file_metadata,
         media_body=media,
-        fields='id, webViewLink'
+        fields='id, webViewLink',
+        supportsAllDrives=True
     ).execute()
     return file.get('webViewLink')
 
@@ -329,7 +334,7 @@ if not st.session_state["autenticado"]:
 # ==========================================
 u_data = st.session_state["usuario_data"]
 
-st.markdown(f"### 📷 SISTEMA DE CUSTODIA Y PRESERVACIÓN DIGITAL")
+st.markdown("### 📷 SISTEMA DE CUSTODIA Y PRESERVACIÓN DIGITAL")
 st.caption(f"División Gabinete Criminalístico Los Antiguos | Usuario Activo: **{u_data['nombre']}** ({u_data['rol']})")
 
 st.sidebar.title("MENÚ PRINCIPAL")
