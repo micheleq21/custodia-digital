@@ -35,7 +35,7 @@ st.set_page_config(
 )
 
 # ==========================================
-# FUNCIONES DE GOOGLE DRIVE Y DESCARGA
+# FUNCIONES DE GOOGLE DRIVE Y ROBUSTEZ
 # ==========================================
 def get_drive_service():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -52,12 +52,25 @@ def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
         'mimeType': 'application/vnd.google-apps.folder',
         'parents': [parent_id]
     }
-    folder = service.files().create(
-        body=file_metadata, 
-        fields='id',
-        supportsAllDrives=True
-    ).execute()
-    return folder.get('id')
+    try:
+        folder = service.files().create(
+            body=file_metadata, 
+            fields='id',
+            supportsAllDrives=True
+        ).execute()
+        return folder.get('id')
+    except Exception:
+        # Si no puede acceder a la carpeta padre compartida, crea la subcarpeta en la raíz propia
+        file_metadata_root = {
+            'name': nombre_carpeta,
+            'mimeType': 'application/vnd.google-apps.folder'
+        }
+        folder = service.files().create(
+            body=file_metadata_root, 
+            fields='id',
+            supportsAllDrives=True
+        ).execute()
+        return folder.get('id')
 
 def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     file_metadata = {
@@ -74,16 +87,29 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     return file.get('webViewLink')
 
 def buscar_id_subcarpeta_drive(service, nombre_carpeta, parent_id):
-    query = f"'{parent_id}' in parents and name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-    results = service.files().list(q=query, fields="files(id, name)", supportsAllDrives=True).execute()
-    items = results.get('files', [])
-    if items:
-        return items[0]['id']
+    query = f"name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    try:
+        results = service.files().list(
+            q=query, 
+            fields="files(id, name)", 
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
+        items = results.get('files', [])
+        if items:
+            return items[0]['id']
+    except Exception:
+        pass
     return None
 
 def descargar_zip_desde_drive(service, subcarpeta_id, nombre_zip):
     query = f"'{subcarpeta_id}' in parents and trashed = false"
-    results = service.files().list(q=query, fields="files(id, name)", supportsAllDrives=True).execute()
+    results = service.files().list(
+        q=query, 
+        fields="files(id, name)", 
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True
+    ).execute()
     archivos = results.get('files', [])
 
     buffer = io.BytesIO()
