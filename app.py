@@ -9,7 +9,7 @@ from datetime import datetime
 # Importaciones para Google Drive API
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 
 # ==========================================
 # CONFIGURACIÓN DE RUTAS Y GOOGLE DRIVE
@@ -35,7 +35,7 @@ st.set_page_config(
 )
 
 # ==========================================
-# FUNCIONES DE GOOGLE DRIVE (AJUSTADAS CON PERMISOS)
+# FUNCIONES DE GOOGLE DRIVE Y DESCARGA
 # ==========================================
 def get_drive_service():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -73,18 +73,42 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     ).execute()
     return file.get('webViewLink')
 
+def buscar_id_subcarpeta_drive(service, nombre_carpeta, parent_id):
+    query = f"'{parent_id}' in parents and name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    results = service.files().list(q=query, fields="files(id, name)", supportsAllDrives=True).execute()
+    items = results.get('files', [])
+    if items:
+        return items[0]['id']
+    return None
+
+def descargar_zip_desde_drive(service, subcarpeta_id, nombre_zip):
+    query = f"'{subcarpeta_id}' in parents and trashed = false"
+    results = service.files().list(q=query, fields="files(id, name)", supportsAllDrives=True).execute()
+    archivos = results.get('files', [])
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for archivo in archivos:
+            request = service.files().get_media(fileId=archivo['id'])
+            file_buffer = io.BytesIO()
+            downloader = MediaIoBaseDownload(file_buffer, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            zip_file.writestr(archivo['name'], file_buffer.getvalue())
+            
+    buffer.seek(0)
+    return buffer
+
 # ==========================================
-# ESTILOS CSS PROFESIONALES (AZUL MARINO INSTITUCIONAL)
+# ESTILOS CSS PROFESIONALES
 # ==========================================
 st.markdown("""
     <style>
-    /* Estilos Generales */
     .stApp {
         background-color: #F4F6F9;
         font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
-    
-    /* Barra Lateral */
     [data-testid="stSidebar"] {
         background-color: #001A33 !important;
         color: #FFFFFF !important;
@@ -92,22 +116,13 @@ st.markdown("""
     [data-testid="stSidebar"] * {
         color: #FFFFFF !important;
     }
-    
-    /* Títulos Principales */
     h1 {
         color: #001F3F !important;
         font-weight: 700 !important;
-        letter-spacing: -0.5px;
         border-bottom: 3px solid #002B49;
         padding-bottom: 10px;
         margin-bottom: 25px !important;
     }
-    h2, h3 {
-        color: #002B49 !important;
-        font-weight: 600 !important;
-    }
-
-    /* Banners y Tarjetas Personalizadas */
     .banner-header {
         background: linear-gradient(135deg, #001F3F 0%, #003366 100%);
         color: white;
@@ -121,24 +136,12 @@ st.markdown("""
         font-weight: 700;
         margin: 0;
         color: #FFFFFF;
-        letter-spacing: 0.5px;
     }
     .banner-subtitle {
         font-size: 14px;
         color: #D0E1F9;
         margin-top: 5px;
     }
-    
-    .card-info {
-        background-color: #FFFFFF;
-        border-left: 5px solid #003366;
-        padding: 18px;
-        border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-        margin-bottom: 15px;
-    }
-
-    /* Botones */
     .stButton>button {
         background: linear-gradient(180deg, #002B49 0%, #001F3F 100%);
         color: #FFFFFF !important;
@@ -146,17 +149,7 @@ st.markdown("""
         border-radius: 6px;
         padding: 10px 24px;
         font-weight: 600;
-        letter-spacing: 0.3px;
-        transition: all 0.2s ease-in-out;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
-    .stButton>button:hover {
-        background: linear-gradient(180deg, #003366 0%, #002B49 100%);
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        transform: translateY(-1px);
-    }
-
-    /* Contenedores de Formulario */
     [data-testid="stForm"] {
         background-color: #FFFFFF;
         border-radius: 10px;
@@ -168,7 +161,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# FUNCIONES DE MANEJO DE DATOS Y AUDITORÍA
+# MANEJO DE DATOS Y AUDITORÍA
 # ==========================================
 def cargar_configuracion():
     if not os.path.exists(CONFIG_PATH):
@@ -281,7 +274,7 @@ def guardar_registro_excel(datos_registro):
 
     df_final.to_excel(EXCEL_PATH, index=False)
 
-def crear_zip_carpeta(ruta_carpeta):
+def crear_zip_carpeta_local(ruta_carpeta):
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
         for root, dirs, files in os.walk(ruta_carpeta):
@@ -306,7 +299,7 @@ if not st.session_state["autenticado"]:
     st.markdown("""
         <div class="banner-header" style="text-align: center;">
             <div class="banner-title">🏛️ SISTEMA DE CUSTODIA DIGITAL</div>
-            <div class="banner-subtitle">DIVISIÓN GABINETE CRIMINALÍSTICO LOS ANTIGUOS - POLICÍA DE LA PROVINCIA DE SANTA CRUZ</div>
+            <div class="banner-subtitle">DIVISIÓN GABINETE CRIMINALÍSTICO LOS ANTIGUOS - POLICÍA DE SANTA CRUZ</div>
         </div>
     """, unsafe_allow_html=True)
     
@@ -376,7 +369,6 @@ df_config = cargar_configuracion()
 if opcion_menu == "📝 Cargar Secuencia":
     st.title("📝 Registro de Secuencias Fotográficas")
     
-    # SECCIÓN DE NOTIFICACIONES DIRIGIDAS / GENERALES
     df_avisos = cargar_avisos()
     usuario_actual = str(u_data['usuario'])
     nombre_actual = str(u_data['nombre']).upper()
@@ -481,7 +473,6 @@ if opcion_menu == "📝 Cargar Secuencia":
 
             cant_fotos_subidas = len(archivos_fotos)
 
-            # --- SUBIDA A GOOGLE DRIVE ---
             drive_exito = False
             try:
                 service = get_drive_service()
@@ -490,19 +481,17 @@ if opcion_menu == "📝 Cargar Secuencia":
                 for idx, foto in enumerate(archivos_fotos, start=1):
                     ext = os.path.splitext(foto.name)[1]
                     nombre_foto = f"FOTO_{idx:03d}_{letra_actual}{ext}"
-                    
-                    # 1. Guardar localmente
                     foto_bytes = foto.getbuffer()
+                    
                     with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
                         f.write(foto_bytes)
                     
-                    # 2. Subir a Google Drive
                     mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
                     subir_foto_drive(service, foto_bytes, nombre_foto, mime, subcarpeta_id)
                 
                 drive_exito = True
             except Exception as e:
-                st.warning(f"⚠️ Las fotos se guardaron localmente pero hubo un detalle al subir a Google Drive: {e}")
+                st.error(f"⚠️ Error al conectar con Google Drive: {e}")
 
             registro = {
                 "Fecha_Carga": fecha_str,
@@ -529,7 +518,7 @@ if opcion_menu == "📝 Cargar Secuencia":
 
             st.success(f"✅ ¡Secuencia **{letra_actual}** registrada con éxito!")
             if drive_exito:
-                st.info("☁️ **Resguardo permanente habilitado:** Las fotos se subieron correctamente a Google Drive.")
+                st.info("☁️ **Resguardo permanente activado:** Las fotos se guardaron exitosamente en Google Drive.")
             st.write(f"📄 **Informe Fotográfico Asignado:** `{itf_formateado}`")
             st.write(f"📁 **Carpeta:** `{nombre_carpeta}`")
             st.write(f"📷 **Fotos indicadas:** {cant_fotos_manual} | **Fotos subidas:** {cant_fotos_subidas} unidades.")
@@ -599,10 +588,21 @@ elif opcion_menu == "🔍 Buscar y Descargar Hechos":
             if tiene_acceso:
                 st.success("✅ **ACCESO AUTORIZADO:** Usted figura como personal interviniente o autoridad supervisora en esta actuación.")
                 
-                ruta_completa = os.path.join(SECUENCIAS_DIR, carpeta_seleccionada)
-                if os.path.exists(ruta_completa):
-                    zip_buffer = crear_zip_carpeta(ruta_completa)
-                    
+                zip_buffer = None
+                ruta_completa_local = os.path.join(SECUENCIAS_DIR, carpeta_seleccionada)
+                
+                if os.path.exists(ruta_completa_local) and len(os.listdir(ruta_completa_local)) > 0:
+                    zip_buffer = crear_zip_carpeta_local(ruta_completa_local)
+                else:
+                    try:
+                        service = get_drive_service()
+                        subcarpeta_id = buscar_id_subcarpeta_drive(service, carpeta_seleccionada, DRIVE_FOLDER_ID)
+                        if subcarpeta_id:
+                            zip_buffer = descargar_zip_desde_drive(service, subcarpeta_id, f"{carpeta_seleccionada}.zip")
+                    except Exception as e:
+                        st.error(f"Error al obtener archivos desde la nube: {e}")
+
+                if zip_buffer:
                     st.download_button(
                         label=f"⬇️ Descargar Fotografías de `{carpeta_seleccionada}` (ZIP)",
                         data=zip_buffer,
@@ -612,7 +612,7 @@ elif opcion_menu == "🔍 Buscar y Descargar Hechos":
                         args=(carpeta_seleccionada, u_data['usuario'], u_data['nombre'])
                     )
                 else:
-                    st.error("La carpeta física no se encuentra disponible en el servidor local.")
+                    st.warning("⚠️ No se encontraron archivos para esta secuencia en la nube ni en el servidor local.")
             else:
                 st.error("🚫 **ACCESO DENEGADO — RESTRICCIÓN DE CUSTODIA DIGITAL**\n\nUsted no figura como personal interviniente en las presentes actuaciones.\n\n*Por razones de confidencialidad institucional, el acceso se encuentra reservado al personal participante y a la Jefatura del Gabinete.*")
 
