@@ -4,18 +4,15 @@ import os
 import string
 import zipfile
 import io
+import json
+import requests
 from datetime import datetime
 
-# Importaciones para Google Drive API
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
-
 # ==========================================
-# CONFIGURACIÓN DE RUTAS Y GOOGLE DRIVE
+# CONFIGURACIÓN DE GOOGLE APPS SCRIPT Y RUTAS
 # ==========================================
-DRIVE_FOLDER_ID = "1tfbMMBfvcD5ZKyvX2iVFC_8UxEIvuk-4"
-CORREO_PROPIETARIO = "custodiadigital.criminalistica@gmail.com"
+# Pegamos la URL de tu Apps Script recién creada:
+APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyNrsnmoOqnKMvGMJzaZ99fdH_UV11t82BVhSGGSf6r80DZgMVX6dcUQ2lemYjG_j4"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
@@ -36,136 +33,22 @@ st.set_page_config(
 )
 
 # ==========================================
-# FUNCIONES ROBUSTAS DE GOOGLE DRIVE
+# FUNCIÓN DE SUBIDA A TRAVÉS DE APPS SCRIPT
 # ==========================================
-def get_drive_service():
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    if "private_key" in creds_dict:
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-    
-    scopes = ['https://www.googleapis.com/auth/drive']
-    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    return build('drive', 'v3', credentials=creds)
-
-def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
-    folder_id = None
-    file_metadata = {
-        'name': nombre_carpeta,
-        'mimeType': 'application/vnd.google-apps.folder',
-        'parents': [parent_id]
+def subir_foto_apps_script(file_bytes, nombre_foto, mime_type):
+    import base64
+    bytes_base64 = base64.b64encode(file_bytes).decode('utf-8')
+    payload = {
+        "filename": nombre_foto,
+        "mimeType": mime_type,
+        "bytes": bytes_base64
     }
-    
     try:
-        folder = service.files().create(
-            body=file_metadata, 
-            fields='id',
-            supportsAllDrives=True
-        ).execute()
-        folder_id = folder.get('id')
+        response = requests.post(APPS_SCRIPT_URL, json=payload, timeout=30)
+        resultado = response.json()
+        return resultado.get("status") == "success"
     except Exception:
-        file_metadata_fallback = {
-            'name': nombre_carpeta,
-            'mimeType': 'application/vnd.google-apps.folder'
-        }
-        folder = service.files().create(
-            body=file_metadata_fallback, 
-            fields='id',
-            supportsAllDrives=True
-        ).execute()
-        folder_id = folder.get('id')
-
-    if folder_id:
-        try:
-            permission = {
-                'type': 'user',
-                'role': 'writer',
-                'emailAddress': CORREO_PROPIETARIO
-            }
-            service.permissions().create(
-                fileId=folder_id,
-                body=permission,
-                fields='id',
-                supportsAllDrives=True
-            ).execute()
-        except Exception:
-            pass
-
-    return folder_id
-
-def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
-    file_metadata = {
-        'name': nombre_foto,
-        'parents': [folder_id]
-    }
-    
-    media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type, resumable=False)
-    
-    file = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields='id, webViewLink',
-        supportsAllDrives=True
-    ).execute()
-    
-    file_id = file.get('id')
-    
-    if file_id:
-        try:
-            permission = {
-                'type': 'user',
-                'role': 'writer',
-                'emailAddress': CORREO_PROPIETARIO
-            }
-            service.permissions().create(
-                fileId=file_id,
-                body=permission,
-                fields='id',
-                supportsAllDrives=True
-            ).execute()
-        except Exception:
-            pass
-
-    return file.get('webViewLink')
-
-def buscar_id_subcarpeta_drive(service, nombre_carpeta, parent_id):
-    query = f"name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-    try:
-        results = service.files().list(
-            q=query, 
-            fields="files(id, name)", 
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True
-        ).execute()
-        items = results.get('files', [])
-        if items:
-            return items[0]['id']
-    except Exception:
-        pass
-    return None
-
-def descargar_zip_desde_drive(service, subcarpeta_id, nombre_zip):
-    query = f"'{subcarpeta_id}' in parents and trashed = false"
-    results = service.files().list(
-        q=query, 
-        fields="files(id, name)", 
-        supportsAllDrives=True,
-        includeItemsFromAllDrives=True
-    ).execute()
-    archivos = results.get('files', [])
-
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        for archivo in archivos:
-            request = service.files().get_media(fileId=archivo['id'])
-            file_buffer = io.BytesIO()
-            downloader = MediaIoBaseDownload(file_buffer, request)
-            done = False
-            while not done:
-                _, done = downloader.next_chunk()
-            zip_file.writestr(archivo['name'], file_buffer.getvalue())
-            
-    buffer.seek(0)
-    return buffer
+        return False
 
 # ==========================================
 # ESTILOS CSS PROFESIONALES
@@ -539,36 +422,22 @@ if opcion_menu == "📝 Cargar Secuencia":
             os.makedirs(ruta_carpeta, exist_ok=True)
 
             cant_fotos_subidas = len(archivos_fotos)
+            fotos_exitosas_drive = 0
 
-            drive_exito = False
-            fotos_fallidas = 0
-            try:
-                service = get_drive_service()
-                subcarpeta_id = crear_subcarpeta_drive(service, nombre_carpeta, DRIVE_FOLDER_ID)
-                
-                if subcarpeta_id:
-                    for idx, foto in enumerate(archivos_fotos, start=1):
-                        ext = os.path.splitext(foto.name)[1]
-                        nombre_foto = f"FOTO_{idx:03d}_{letra_actual}{ext}"
-                        
-                        foto_bytes = foto.getvalue()
-                        
-                        # Guardar copia local
-                        with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
-                            f.write(foto_bytes)
-                        
-                        # Subir imagen a Google Drive
-                        mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
-                        try:
-                            subir_foto_drive(service, foto_bytes, nombre_foto, mime, subcarpeta_id)
-                        except Exception as err_foto:
-                            fotos_fallidas += 1
-                            st.warning(f"⚠️ Alerta en {nombre_foto}: {err_foto}")
+            with st.spinner("☁️ Subiendo fotografías directamente a tu Google Drive..."):
+                for idx, foto in enumerate(archivos_fotos, start=1):
+                    ext = os.path.splitext(foto.name)[1]
+                    nombre_foto = f"{nombre_carpeta}_FOTO_{idx:03d}{ext}"
+                    foto_bytes = foto.getvalue()
                     
-                    if fotos_fallidas == 0:
-                        drive_exito = True
-            except Exception as e:
-                st.error(f"⚠️ Error al conectar con Drive: {e}")
+                    # Copia local de respaldo
+                    with open(os.path.join(ruta_carpeta, f"FOTO_{idx:03d}_{letra_actual}{ext}"), "wb") as f:
+                        f.write(foto_bytes)
+                    
+                    # Subir mediante Google Apps Script a tu Drive personal
+                    mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
+                    if subir_foto_apps_script(foto_bytes, nombre_foto, mime):
+                        fotos_exitosas_drive += 1
 
             registro = {
                 "Fecha_Carga": fecha_str,
@@ -590,15 +459,16 @@ if opcion_menu == "📝 Cargar Secuencia":
                 "Cargado_Por": u_data['usuario']
             }
             guardar_registro_excel(registro)
-
             guardar_configuracion(num_itf_actual)
 
             st.success(f"✅ ¡Secuencia **{letra_actual}** registrada con éxito!")
-            if drive_exito:
-                st.info("☁️ **Resguardo permanente activado:** Las fotos se guardaron exitosamente en tu Google Drive.")
+            if fotos_exitosas_drive > 0:
+                st.info(f"☁️ **Google Drive Actualizado:** {fotos_exitosas_drive} de {cant_fotos_subidas} fotos subidas correctamente a tu carpeta personal.")
+            else:
+                st.warning("⚠️ Las fotos se guardaron localmente pero hubo un inconveniente al impactar en Drive. Verificá la URL del Script.")
+            
             st.write(f"📄 **Informe Fotográfico Asignado:** `{itf_formateado}`")
             st.write(f"📁 **Carpeta:** `{nombre_carpeta}`")
-            st.write(f"📷 **Fotos indicadas:** {cant_fotos_manual} | **Fotos subidas:** {cant_fotos_subidas} unidades.")
             st.balloons()
 
 # ==========================================
@@ -671,13 +541,7 @@ elif opcion_menu == "🔍 Buscar y Descargar Hechos":
                 if os.path.exists(ruta_completa_local) and len(os.listdir(ruta_completa_local)) > 0:
                     zip_buffer = crear_zip_carpeta_local(ruta_completa_local)
                 else:
-                    try:
-                        service = get_drive_service()
-                        subcarpeta_id = buscar_id_subcarpeta_drive(service, carpeta_seleccionada, DRIVE_FOLDER_ID)
-                        if subcarpeta_id:
-                            zip_buffer = descargar_zip_desde_drive(service, subcarpeta_id, f"{carpeta_seleccionada}.zip")
-                    except Exception as e:
-                        st.error(f"Error al obtener archivos desde la nube: {e}")
+                    st.warning("⚠️ No se encontraron archivos locales para esta secuencia.")
 
                 if zip_buffer:
                     st.download_button(
@@ -688,8 +552,6 @@ elif opcion_menu == "🔍 Buscar y Descargar Hechos":
                         on_click=registrar_descarga_log,
                         args=(carpeta_seleccionada, u_data['usuario'], u_data['nombre'])
                     )
-                else:
-                    st.warning("⚠️ No se encontraron archivos para esta secuencia en la nube ni en el servidor local.")
             else:
                 st.error("🚫 **ACCESO DENEGADO — RESTRICCIÓN DE CUSTODIA DIGITAL**\n\nUsted no figura como personal interviniente en las presentes actuaciones.\n\n*Por razones de confidencialidad institucional, el acceso se encuentra reservado al personal participante y a la Jefatura del Gabinete.*")
 
