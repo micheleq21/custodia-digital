@@ -14,7 +14,7 @@ from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 # ==========================================
 # CONFIGURACIÓN DE RUTAS Y GOOGLE DRIVE
 # ==========================================
-DRIVE_FOLDER_ID = "1mWmUetoNl4wBaE6b1ZFDPh9v9ovJGFvk"
+DRIVE_FOLDER_ID = "1tfbMMBfvcD5ZKyvX2iVFC_8UxEIvuk-4"
 CORREO_PROPIETARIO = "custodiadigital.criminalistica@gmail.com"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -62,8 +62,7 @@ def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
             supportsAllDrives=True
         ).execute()
         folder_id = folder.get('id')
-    except Exception as e:
-        # Fallback de creación directa
+    except Exception:
         file_metadata_fallback = {
             'name': nombre_carpeta,
             'mimeType': 'application/vnd.google-apps.folder'
@@ -75,7 +74,6 @@ def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
         ).execute()
         folder_id = folder.get('id')
 
-    # Asignar permisos de ESCRITURA a tu usuario personal
     if folder_id:
         try:
             permission = {
@@ -102,7 +100,6 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     
     media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type, resumable=False)
     
-    # IMPORTANTE: supportsAllDrives=True asegura la herencia de la carpeta asignada
     file = service.files().create(
         body=file_metadata,
         media_body=media,
@@ -112,7 +109,6 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     
     file_id = file.get('id')
     
-    # Compartir explícitamente el archivo con el correo propietario
     if file_id:
         try:
             permission = {
@@ -561,7 +557,7 @@ if opcion_menu == "📝 Cargar Secuencia":
                         with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
                             f.write(foto_bytes)
                         
-                        # Subir foto heredando el espacio de la carpeta padre
+                        # Subir imagen a Google Drive
                         mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
                         try:
                             subir_foto_drive(service, foto_bytes, nombre_foto, mime, subcarpeta_id)
