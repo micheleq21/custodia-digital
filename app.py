@@ -97,9 +97,9 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
         'parents': [folder_id]
     }
     
-    # IMPORTANTE: io.BytesIO garantiza la lectura binaria correcta
-    media_buffer = io.BytesIO(file_bytes)
-    media = MediaIoBaseUpload(media_buffer, mimetype=mime_type, resumable=True)
+    # BytesIO explícito con resumable=False garantiza la transmisión inmediata sin perdida de buffer
+    stream = io.BytesIO(file_bytes)
+    media = MediaIoBaseUpload(stream, mimetype=mime_type, resumable=False)
     
     file = service.files().create(
         body=file_metadata,
@@ -110,7 +110,6 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     
     file_id = file.get('id')
     
-    # Asegurar visibilidad explícita del archivo
     if file_id:
         try:
             service.permissions().create(
@@ -546,14 +545,15 @@ if opcion_menu == "📝 Cargar Secuencia":
                         ext = os.path.splitext(foto.name)[1]
                         nombre_foto = f"FOTO_{idx:03d}_{letra_actual}{ext}"
                         
-                        # Extraer bytes desde el cargador de Streamlit
-                        foto_bytes = foto.getvalue()
+                        # Lectura binaria pura desde el buffer de Streamlit
+                        foto.seek(0)
+                        foto_bytes = foto.read()
                         
-                        # 1. Copia en servidor local
+                        # 1. Copia local
                         with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
                             f.write(foto_bytes)
                         
-                        # 2. Subir imagen a Google Drive
+                        # 2. Subida explícita a Google Drive
                         mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
                         subir_foto_drive(service, foto_bytes, nombre_foto, mime, subcarpeta_id)
                     
