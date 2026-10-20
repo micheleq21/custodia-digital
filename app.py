@@ -74,7 +74,7 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     return file.get('webViewLink')
 
 def buscar_id_subcarpeta_drive(service, nombre_carpeta, parent_id):
-    query = f"name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    query = f"'{parent_id}' in parents and name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     try:
         results = service.files().list(
             q=query, 
