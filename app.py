@@ -96,7 +96,11 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
         'name': nombre_foto,
         'parents': [folder_id]
     }
-    media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type, resumable=True)
+    
+    # IMPORTANTE: io.BytesIO garantiza la lectura binaria correcta
+    media_buffer = io.BytesIO(file_bytes)
+    media = MediaIoBaseUpload(media_buffer, mimetype=mime_type, resumable=True)
+    
     file = service.files().create(
         body=file_metadata,
         media_body=media,
@@ -104,15 +108,18 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
         supportsAllDrives=True
     ).execute()
     
-    # Otorgar permiso directo sobre el archivo subido
-    try:
-        service.permissions().create(
-            fileId=file.get('id'),
-            body={'type': 'user', 'role': 'writer', 'emailAddress': CORREO_PROPIETARIO},
-            supportsAllDrives=True
-        ).execute()
-    except Exception:
-        pass
+    file_id = file.get('id')
+    
+    # Asegurar visibilidad explícita del archivo
+    if file_id:
+        try:
+            service.permissions().create(
+                fileId=file_id,
+                body={'type': 'user', 'role': 'writer', 'emailAddress': CORREO_PROPIETARIO},
+                supportsAllDrives=True
+            ).execute()
+        except Exception:
+            pass
 
     return file.get('webViewLink')
 
@@ -539,14 +546,14 @@ if opcion_menu == "📝 Cargar Secuencia":
                         ext = os.path.splitext(foto.name)[1]
                         nombre_foto = f"FOTO_{idx:03d}_{letra_actual}{ext}"
                         
-                        # Extraer bytes asegurando puntero en cero
+                        # Extraer bytes desde el cargador de Streamlit
                         foto_bytes = foto.getvalue()
                         
-                        # 1. Guardar copia local
+                        # 1. Copia en servidor local
                         with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
                             f.write(foto_bytes)
                         
-                        # 2. Subir a Google Drive
+                        # 2. Subir imagen a Google Drive
                         mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
                         subir_foto_drive(service, foto_bytes, nombre_foto, mime, subcarpeta_id)
                     
