@@ -52,25 +52,12 @@ def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
         'mimeType': 'application/vnd.google-apps.folder',
         'parents': [parent_id]
     }
-    try:
-        folder = service.files().create(
-            body=file_metadata, 
-            fields='id',
-            supportsAllDrives=True
-        ).execute()
-        return folder.get('id')
-    except Exception:
-        # Si no puede acceder a la carpeta padre compartida, crea la subcarpeta en la raíz propia
-        file_metadata_root = {
-            'name': nombre_carpeta,
-            'mimeType': 'application/vnd.google-apps.folder'
-        }
-        folder = service.files().create(
-            body=file_metadata_root, 
-            fields='id',
-            supportsAllDrives=True
-        ).execute()
-        return folder.get('id')
+    folder = service.files().create(
+        body=file_metadata, 
+        fields='id',
+        supportsAllDrives=True
+    ).execute()
+    return folder.get('id')
 
 def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     file_metadata = {
@@ -544,7 +531,7 @@ if opcion_menu == "📝 Cargar Secuencia":
 
             st.success(f"✅ ¡Secuencia **{letra_actual}** registrada con éxito!")
             if drive_exito:
-                st.info("☁️ **Resguardo permanente activado:** Las fotos se guardaron exitosamente en Google Drive.")
+                st.info("☁️ **Resguardo permanente activado:** Las fotos se guardaron exitosamente en tu Google Drive.")
             st.write(f"📄 **Informe Fotográfico Asignado:** `{itf_formateado}`")
             st.write(f"📁 **Carpeta:** `{nombre_carpeta}`")
             st.write(f"📷 **Fotos indicadas:** {cant_fotos_manual} | **Fotos subidas:** {cant_fotos_subidas} unidades.")
