@@ -11,7 +11,7 @@ from datetime import datetime
 # ==========================================
 # CONFIGURACIÓN DE GOOGLE APPS SCRIPT Y RUTAS
 # ==========================================
-APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxIxeMtTGBlBrmJD7MX5SKtmqnwBVwOHkPuR3AW3RAItUS4rndLXed53a9bYPJqXj7"
+APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbkEhF48QLwHR97OUu8gLEDNPrriYfw03FNNA1Snfpr9OqVJbxhVuBtJVcR9eVRc"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
@@ -34,13 +34,14 @@ st.set_page_config(
 # ==========================================
 # FUNCIÓN DE SUBIDA A TRAVÉS DE APPS SCRIPT
 # ==========================================
-def subir_foto_apps_script(file_bytes, nombre_foto, mime_type):
+def subir_foto_apps_script(file_bytes, nombre_foto, mime_type, nombre_carpeta_secuencia):
     import base64
     bytes_base64 = base64.b64encode(file_bytes).decode('utf-8')
     payload = {
         "filename": nombre_foto,
         "mimeType": mime_type,
-        "bytes": bytes_base64
+        "bytes": bytes_base64,
+        "folderName": nombre_carpeta_secuencia
     }
     try:
         response = requests.post(APPS_SCRIPT_URL, json=payload, timeout=30)
@@ -423,19 +424,19 @@ if opcion_menu == "📝 Cargar Secuencia":
             cant_fotos_subidas = len(archivos_fotos)
             fotos_exitosas_drive = 0
 
-            with st.spinner("☁️ Subiendo fotografías directamente a tu Google Drive..."):
+            with st.spinner("☁️ Creando carpeta y subiendo fotografías a tu Google Drive..."):
                 for idx, foto in enumerate(archivos_fotos, start=1):
                     ext = os.path.splitext(foto.name)[1]
-                    nombre_foto = f"{nombre_carpeta}_FOTO_{idx:03d}{ext}"
+                    nombre_foto = f"FOTO_{idx:03d}_{letra_actual}{ext}"
                     foto_bytes = foto.getvalue()
                     
                     # Copia local de respaldo
-                    with open(os.path.join(ruta_carpeta, f"FOTO_{idx:03d}_{letra_actual}{ext}"), "wb") as f:
+                    with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
                         f.write(foto_bytes)
                     
-                    # Subir mediante Google Apps Script a tu Drive personal
+                    # Subir mediante Google Apps Script creando la subcarpeta en tu Drive
                     mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
-                    if subir_foto_apps_script(foto_bytes, nombre_foto, mime):
+                    if subir_foto_apps_script(foto_bytes, nombre_foto, mime, nombre_carpeta):
                         fotos_exitosas_drive += 1
 
             registro = {
@@ -462,12 +463,11 @@ if opcion_menu == "📝 Cargar Secuencia":
 
             st.success(f"✅ ¡Secuencia **{letra_actual}** registrada con éxito!")
             if fotos_exitosas_drive > 0:
-                st.info(f"☁️ **Google Drive Actualizado:** {fotos_exitosas_drive} de {cant_fotos_subidas} fotos subidas correctamente a tu carpeta personal.")
+                st.info(f"☁️ **Google Drive Actualizado:** Carpeta `{nombre_carpeta}` creada con {fotos_exitosas_drive} de {cant_fotos_subidas} fotos dentro de tu Google Drive.")
             else:
-                st.warning("⚠️ Las fotos se guardaron localmente pero hubo un inconveniente al impactar en Drive. Verificá la URL del Script.")
+                st.warning("⚠️ Las fotos se guardaron localmente pero hubo un inconveniente al impactar en Drive.")
             
             st.write(f"📄 **Informe Fotográfico Asignado:** `{itf_formateado}`")
-            st.write(f"📁 **Carpeta:** `{nombre_carpeta}`")
             st.balloons()
 
 # ==========================================
