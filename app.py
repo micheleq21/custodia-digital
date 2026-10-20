@@ -97,9 +97,7 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
         'parents': [folder_id]
     }
     
-    # BytesIO explícito con resumable=False garantiza la transmisión inmediata sin perdida de buffer
-    stream = io.BytesIO(file_bytes)
-    media = MediaIoBaseUpload(stream, mimetype=mime_type, resumable=False)
+    media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type, resumable=False)
     
     file = service.files().create(
         body=file_metadata,
@@ -110,11 +108,18 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     
     file_id = file.get('id')
     
+    # Otorgar permiso directo sobre el archivo subido para que aparezca en Drive
     if file_id:
         try:
+            permission = {
+                'type': 'user',
+                'role': 'writer',
+                'emailAddress': CORREO_PROPIETARIO
+            }
             service.permissions().create(
                 fileId=file_id,
-                body={'type': 'user', 'role': 'writer', 'emailAddress': CORREO_PROPIETARIO},
+                body=permission,
+                fields='id',
                 supportsAllDrives=True
             ).execute()
         except Exception:
@@ -536,6 +541,7 @@ if opcion_menu == "📝 Cargar Secuencia":
             cant_fotos_subidas = len(archivos_fotos)
 
             drive_exito = False
+            fotos_fallidas = 0
             try:
                 service = get_drive_service()
                 subcarpeta_id = crear_subcarpeta_drive(service, nombre_carpeta, DRIVE_FOLDER_ID)
@@ -545,21 +551,25 @@ if opcion_menu == "📝 Cargar Secuencia":
                         ext = os.path.splitext(foto.name)[1]
                         nombre_foto = f"FOTO_{idx:03d}_{letra_actual}{ext}"
                         
-                        # Lectura binaria pura desde el buffer de Streamlit
-                        foto.seek(0)
-                        foto_bytes = foto.read()
+                        # Extraer bytes asegurando lectura desde el inicio
+                        foto_bytes = foto.getvalue()
                         
-                        # 1. Copia local
+                        # Guardar copia local
                         with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
                             f.write(foto_bytes)
                         
-                        # 2. Subida explícita a Google Drive
+                        # Subir imagen a Google Drive
                         mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
-                        subir_foto_drive(service, foto_bytes, nombre_foto, mime, subcarpeta_id)
+                        try:
+                            subir_foto_drive(service, foto_bytes, nombre_foto, mime, subcarpeta_id)
+                        except Exception as err_foto:
+                            fotos_fallidas += 1
+                            st.warning(f"⚠️ No se pudo subir {nombre_foto} a Drive: {err_foto}")
                     
-                    drive_exito = True
+                    if fotos_fallidas == 0:
+                        drive_exito = True
             except Exception as e:
-                st.error(f"⚠️ Error al conectar con Google Drive: {e}")
+                st.error(f"⚠️ Error al conectar con la subcarpeta en Drive: {e}")
 
             registro = {
                 "Fecha_Carga": fecha_str,
