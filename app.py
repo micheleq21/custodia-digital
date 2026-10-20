@@ -11,8 +11,7 @@ from datetime import datetime
 # ==========================================
 # CONFIGURACIÓN DE GOOGLE APPS SCRIPT Y RUTAS
 # ==========================================
-# Pegamos la URL de tu Apps Script recién creada:
-APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyNrsnmoOqnKMvGMJzaZ99fdH_UV11t82BVhSGGSf6r80DZgMVX6dcUQ2lemYjG_j4"
+APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxIxeMtTGBlBrmJD7MX5SKtmqnwBVwOHkPuR3AW3RAItUS4rndLXed53a9bYPJqXj7"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
