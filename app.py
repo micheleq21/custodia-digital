@@ -49,8 +49,6 @@ def get_drive_service():
 
 def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
     folder_id = None
-    
-    # 1. Intento primario: Crear dentro de la carpeta asignada
     try:
         file_metadata = {
             'name': nombre_carpeta,
@@ -64,7 +62,6 @@ def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
         ).execute()
         folder_id = folder.get('id')
     except Exception:
-        # 2. Fallback: Crear en la raíz propia de la Service Account si falla la carpeta padre
         file_metadata = {
             'name': nombre_carpeta,
             'mimeType': 'application/vnd.google-apps.folder'
@@ -76,7 +73,6 @@ def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
         ).execute()
         folder_id = folder.get('id')
 
-    # Compartir automáticamente la carpeta creada con tu correo personal
     if folder_id:
         try:
             user_permission = {
@@ -107,10 +103,20 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
         fields='id, webViewLink',
         supportsAllDrives=True
     ).execute()
+    
+    # Otorgar permiso directo sobre el archivo subido
+    try:
+        service.permissions().create(
+            fileId=file.get('id'),
+            body={'type': 'user', 'role': 'writer', 'emailAddress': CORREO_PROPIETARIO},
+            supportsAllDrives=True
+        ).execute()
+    except Exception:
+        pass
+
     return file.get('webViewLink')
 
 def buscar_id_subcarpeta_drive(service, nombre_carpeta, parent_id):
-    # Búsqueda global por nombre exacto en Drive
     query = f"name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     try:
         results = service.files().list(
@@ -532,11 +538,15 @@ if opcion_menu == "📝 Cargar Secuencia":
                     for idx, foto in enumerate(archivos_fotos, start=1):
                         ext = os.path.splitext(foto.name)[1]
                         nombre_foto = f"FOTO_{idx:03d}_{letra_actual}{ext}"
-                        foto_bytes = foto.getbuffer()
                         
+                        # Extraer bytes asegurando puntero en cero
+                        foto_bytes = foto.getvalue()
+                        
+                        # 1. Guardar copia local
                         with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
                             f.write(foto_bytes)
                         
+                        # 2. Subir a Google Drive
                         mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
                         subir_foto_drive(service, foto_bytes, nombre_foto, mime, subcarpeta_id)
                     
