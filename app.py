@@ -49,40 +49,43 @@ def get_drive_service():
 
 def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
     folder_id = None
+    file_metadata = {
+        'name': nombre_carpeta,
+        'mimeType': 'application/vnd.google-apps.folder',
+        'parents': [parent_id]
+    }
+    
     try:
-        file_metadata = {
-            'name': nombre_carpeta,
-            'mimeType': 'application/vnd.google-apps.folder',
-            'parents': [parent_id]
-        }
         folder = service.files().create(
             body=file_metadata, 
             fields='id',
             supportsAllDrives=True
         ).execute()
         folder_id = folder.get('id')
-    except Exception:
-        file_metadata = {
+    except Exception as e:
+        # Fallback de creación directa
+        file_metadata_fallback = {
             'name': nombre_carpeta,
             'mimeType': 'application/vnd.google-apps.folder'
         }
         folder = service.files().create(
-            body=file_metadata, 
+            body=file_metadata_fallback, 
             fields='id',
             supportsAllDrives=True
         ).execute()
         folder_id = folder.get('id')
 
+    # Asignar permisos de ESCRITURA a tu usuario personal
     if folder_id:
         try:
-            user_permission = {
+            permission = {
                 'type': 'user',
                 'role': 'writer',
                 'emailAddress': CORREO_PROPIETARIO
             }
             service.permissions().create(
                 fileId=folder_id,
-                body=user_permission,
+                body=permission,
                 fields='id',
                 supportsAllDrives=True
             ).execute()
@@ -99,6 +102,7 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     
     media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type, resumable=False)
     
+    # IMPORTANTE: supportsAllDrives=True asegura la herencia de la carpeta asignada
     file = service.files().create(
         body=file_metadata,
         media_body=media,
@@ -108,7 +112,7 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     
     file_id = file.get('id')
     
-    # Otorgar permiso directo sobre el archivo subido para que aparezca en Drive
+    # Compartir explícitamente el archivo con el correo propietario
     if file_id:
         try:
             permission = {
@@ -551,25 +555,24 @@ if opcion_menu == "📝 Cargar Secuencia":
                         ext = os.path.splitext(foto.name)[1]
                         nombre_foto = f"FOTO_{idx:03d}_{letra_actual}{ext}"
                         
-                        # Extraer bytes asegurando lectura desde el inicio
                         foto_bytes = foto.getvalue()
                         
                         # Guardar copia local
                         with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
                             f.write(foto_bytes)
                         
-                        # Subir imagen a Google Drive
+                        # Subir foto heredando el espacio de la carpeta padre
                         mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
                         try:
                             subir_foto_drive(service, foto_bytes, nombre_foto, mime, subcarpeta_id)
                         except Exception as err_foto:
                             fotos_fallidas += 1
-                            st.warning(f"⚠️ No se pudo subir {nombre_foto} a Drive: {err_foto}")
+                            st.warning(f"⚠️ Alerta en {nombre_foto}: {err_foto}")
                     
                     if fotos_fallidas == 0:
                         drive_exito = True
             except Exception as e:
-                st.error(f"⚠️ Error al conectar con la subcarpeta en Drive: {e}")
+                st.error(f"⚠️ Error al conectar con Drive: {e}")
 
             registro = {
                 "Fecha_Carga": fecha_str,
