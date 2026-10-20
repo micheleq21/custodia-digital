@@ -36,7 +36,7 @@ st.set_page_config(
 )
 
 # ==========================================
-# FUNCIONES DE GOOGLE DRIVE Y ROBUSTEZ
+# FUNCIONES ROBUSTAS DE GOOGLE DRIVE
 # ==========================================
 def get_drive_service():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -48,34 +48,51 @@ def get_drive_service():
     return build('drive', 'v3', credentials=creds)
 
 def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
-    file_metadata = {
-        'name': nombre_carpeta,
-        'mimeType': 'application/vnd.google-apps.folder',
-        'parents': [parent_id]
-    }
-    folder = service.files().create(
-        body=file_metadata, 
-        fields='id',
-        supportsAllDrives=True
-    ).execute()
-    folder_id = folder.get('id')
+    folder_id = None
     
-    # Compartir explícitamente con el correo principal para visualización garantizada
+    # 1. Intento primario: Crear dentro de la carpeta asignada
     try:
-        user_permission = {
-            'type': 'user',
-            'role': 'writer',
-            'emailAddress': CORREO_PROPIETARIO
+        file_metadata = {
+            'name': nombre_carpeta,
+            'mimeType': 'application/vnd.google-apps.folder',
+            'parents': [parent_id]
         }
-        service.permissions().create(
-            fileId=folder_id,
-            body=user_permission,
+        folder = service.files().create(
+            body=file_metadata, 
             fields='id',
             supportsAllDrives=True
         ).execute()
+        folder_id = folder.get('id')
     except Exception:
-        pass
-        
+        # 2. Fallback: Crear en la raíz propia de la Service Account si falla la carpeta padre
+        file_metadata = {
+            'name': nombre_carpeta,
+            'mimeType': 'application/vnd.google-apps.folder'
+        }
+        folder = service.files().create(
+            body=file_metadata, 
+            fields='id',
+            supportsAllDrives=True
+        ).execute()
+        folder_id = folder.get('id')
+
+    # Compartir automáticamente la carpeta creada con tu correo personal
+    if folder_id:
+        try:
+            user_permission = {
+                'type': 'user',
+                'role': 'writer',
+                'emailAddress': CORREO_PROPIETARIO
+            }
+            service.permissions().create(
+                fileId=folder_id,
+                body=user_permission,
+                fields='id',
+                supportsAllDrives=True
+            ).execute()
+        except Exception:
+            pass
+
     return folder_id
 
 def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
@@ -93,11 +110,11 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     return file.get('webViewLink')
 
 def buscar_id_subcarpeta_drive(service, nombre_carpeta, parent_id):
-    # 1. Búsqueda directa por carpeta padre
-    query_padre = f"'{parent_id}' in parents and name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    # Búsqueda global por nombre exacto en Drive
+    query = f"name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     try:
         results = service.files().list(
-            q=query_padre, 
+            q=query, 
             fields="files(id, name)", 
             supportsAllDrives=True,
             includeItemsFromAllDrives=True
@@ -107,22 +124,6 @@ def buscar_id_subcarpeta_drive(service, nombre_carpeta, parent_id):
             return items[0]['id']
     except Exception:
         pass
-
-    # 2. Búsqueda global por nombre exacto en Drive
-    query_global = f"name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-    try:
-        results = service.files().list(
-            q=query_global, 
-            fields="files(id, name)", 
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True
-        ).execute()
-        items = results.get('files', [])
-        if items:
-            return items[0]['id']
-    except Exception:
-        pass
-
     return None
 
 def descargar_zip_desde_drive(service, subcarpeta_id, nombre_zip):
@@ -527,18 +528,19 @@ if opcion_menu == "📝 Cargar Secuencia":
                 service = get_drive_service()
                 subcarpeta_id = crear_subcarpeta_drive(service, nombre_carpeta, DRIVE_FOLDER_ID)
                 
-                for idx, foto in enumerate(archivos_fotos, start=1):
-                    ext = os.path.splitext(foto.name)[1]
-                    nombre_foto = f"FOTO_{idx:03d}_{letra_actual}{ext}"
-                    foto_bytes = foto.getbuffer()
+                if subcarpeta_id:
+                    for idx, foto in enumerate(archivos_fotos, start=1):
+                        ext = os.path.splitext(foto.name)[1]
+                        nombre_foto = f"FOTO_{idx:03d}_{letra_actual}{ext}"
+                        foto_bytes = foto.getbuffer()
+                        
+                        with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
+                            f.write(foto_bytes)
+                        
+                        mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
+                        subir_foto_drive(service, foto_bytes, nombre_foto, mime, subcarpeta_id)
                     
-                    with open(os.path.join(ruta_carpeta, nombre_foto), "wb") as f:
-                        f.write(foto_bytes)
-                    
-                    mime = "image/jpeg" if ext.lower() in [".jpg", ".jpeg"] else "image/png"
-                    subir_foto_drive(service, foto_bytes, nombre_foto, mime, subcarpeta_id)
-                
-                drive_exito = True
+                    drive_exito = True
             except Exception as e:
                 st.error(f"⚠️ Error al conectar con Google Drive: {e}")
 
