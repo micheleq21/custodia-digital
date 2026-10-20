@@ -15,6 +15,7 @@ from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 # CONFIGURACIÓN DE RUTAS Y GOOGLE DRIVE
 # ==========================================
 DRIVE_FOLDER_ID = "1mWmUetoNl4wBaE6b1ZFDPh9v9ovJGFvk"
+CORREO_PROPIETARIO = "custodiadigital.criminalistica@gmail.com"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
@@ -57,7 +58,25 @@ def crear_subcarpeta_drive(service, nombre_carpeta, parent_id):
         fields='id',
         supportsAllDrives=True
     ).execute()
-    return folder.get('id')
+    folder_id = folder.get('id')
+    
+    # Compartir explícitamente con el correo principal para visualización garantizada
+    try:
+        user_permission = {
+            'type': 'user',
+            'role': 'writer',
+            'emailAddress': CORREO_PROPIETARIO
+        }
+        service.permissions().create(
+            fileId=folder_id,
+            body=user_permission,
+            fields='id',
+            supportsAllDrives=True
+        ).execute()
+    except Exception:
+        pass
+        
+    return folder_id
 
 def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     file_metadata = {
@@ -74,10 +93,11 @@ def subir_foto_drive(service, file_bytes, nombre_foto, mime_type, folder_id):
     return file.get('webViewLink')
 
 def buscar_id_subcarpeta_drive(service, nombre_carpeta, parent_id):
-    query = f"'{parent_id}' in parents and name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    # 1. Búsqueda directa por carpeta padre
+    query_padre = f"'{parent_id}' in parents and name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     try:
         results = service.files().list(
-            q=query, 
+            q=query_padre, 
             fields="files(id, name)", 
             supportsAllDrives=True,
             includeItemsFromAllDrives=True
@@ -87,6 +107,22 @@ def buscar_id_subcarpeta_drive(service, nombre_carpeta, parent_id):
             return items[0]['id']
     except Exception:
         pass
+
+    # 2. Búsqueda global por nombre exacto en Drive
+    query_global = f"name = '{nombre_carpeta}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    try:
+        results = service.files().list(
+            q=query_global, 
+            fields="files(id, name)", 
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
+        items = results.get('files', [])
+        if items:
+            return items[0]['id']
+    except Exception:
+        pass
+
     return None
 
 def descargar_zip_desde_drive(service, subcarpeta_id, nombre_zip):
